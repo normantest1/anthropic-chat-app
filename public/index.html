@@ -650,7 +650,7 @@
         .render-toggle-btn {
             position: absolute;
             top: 8px;
-            right: 55px;
+            right: 80px;
             background: #f0f0f0;
             border: 1px solid #ddd;
             border-radius: 3px;
@@ -797,113 +797,161 @@
             });
         }
         
-        function syntaxHighlightJSON(json) {
-            if (typeof json !== 'string') {
-                return String(json);
-            }
-            
-            json = json.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-            
-            return json.replace(
-                /("([^"\\]|\\.)*")(\s*:)?|(\b\d+\.?\d*\b)|(\btrue\b|\bfalse\b)|(\bnull\b)|([{}\[\],])/g,
-                function(match, str, strContent, colon, num, bool, nullVal, bracket) {
-                    if (str) {
-                        if (colon) {
-                            return '<span class="json-key">' + str + '</span><span style="color: #24292e;">:</span>';
-                        } else {
-                            return '<span class="json-string">' + str + '</span>';
-                        }
-                    } else if (num) {
-                        return '<span class="json-number">' + num + '</span>';
-                    } else if (bool) {
-                        return '<span class="json-boolean">' + bool + '</span>';
-                    } else if (nullVal) {
-                        return '<span class="json-null">' + nullVal + '</span>';
-                    } else if (bracket) {
-                        return bracket;
-                    }
-                    return match;
-                }
-            );
+                                function sanitizeDisplayText(text) {
+                                    return String(text)
+                                        .replace(/\[object Object\]/g, '')
+                                        .replace(/\n{3,}/g, '\n\n')
+                                        .trim();
+                                }
+
+                                function normalizeContentToText(content) {
+                                    if (content === null || content === undefined) return '';
+                                    if (typeof content === 'string') return sanitizeDisplayText(content);
+
+                                    if (Array.isArray(content)) {
+                                        const parts = content
+                                            .map(item => {
+                                                if (item && typeof item === 'object' && typeof item.text === 'string') {
+                                                    return item.text;
+                                                }
+                                                return normalizeContentToText(item);
+                                            })
+                                            .filter(part => part && part.trim());
+
+                                        if (parts.length > 0) {
+                                            return sanitizeDisplayText(parts.join('\n'));
+                                        }
+                                    }
+
+                                    if (typeof content === 'object') {
+                                        if (typeof content.text === 'string') return sanitizeDisplayText(content.text);
+                                        if (typeof content.content === 'string') return sanitizeDisplayText(content.content);
+                                        try {
+                                            return sanitizeDisplayText(JSON.stringify(content, null, 2));
+                                        } catch (e) {
+                                            return '';
+                                        }
+                                    }
+
+                                    return sanitizeDisplayText(String(content));
+                                }
+
+
+        function hasDisplayContent(content) {
+            return normalizeContentToText(content).trim().length > 0;
         }
-        
+
+        function isValidJsonText(text) {
+            if (typeof text !== 'string') return false;
+            const trimmed = text.trim();
+            if (!trimmed) return false;
+            if (!((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']')))) {
+                return false;
+            }
+
+            try {
+                JSON.parse(trimmed);
+                return true;
+            } catch (e) {
+                return false;
+            }
+        }
+
+        function renderMarkdownText(markdownText) {
+            const markdownContainer = document.createElement('div');
+            markdownContainer.className = 'message-content';
+
+            try {
+                const parsedContent = marked.parse(markdownText);
+                markdownContainer.innerHTML = typeof parsedContent === 'string' ? parsedContent : markdownText;
+            } catch (err) {
+                markdownContainer.textContent = markdownText;
+            }
+
+            return markdownContainer;
+        }
+
+        function buildMixedContentContainer(contentText) {
+            const container = document.createElement('div');
+            container.className = 'message-content';
+            container.style.lineHeight = '1.6';
+
+            const lines = contentText.split(/\r?\n/);
+            let markdownBuffer = [];
+            let i = 0;
+
+            const flushMarkdown = () => {
+                if (!markdownBuffer.length) return;
+                const markdownText = markdownBuffer.join('\n').trimEnd();
+                markdownBuffer = [];
+
+                if (!markdownText.trim()) return;
+                container.appendChild(renderMarkdownText(markdownText));
+            };
+
+            while (i < lines.length) {
+                const line = lines[i];
+                const trimmed = line.trim();
+
+                if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+                    const jsonLines = [line];
+                    let j = i + 1;
+                    let found = isValidJsonText(jsonLines.join('\n'));
+
+                    while (!found && j < lines.length) {
+                        jsonLines.push(lines[j]);
+                        found = isValidJsonText(jsonLines.join('\n'));
+                        j++;
+                    }
+
+                    if (found) {
+                        flushMarkdown();
+                        const pre = document.createElement('pre');
+                        pre.className = 'json-formatted';
+                        pre.textContent = jsonLines.join('\n');
+                        container.appendChild(pre);
+                        i = j;
+                        continue;
+                    }
+                }
+
+                markdownBuffer.push(line);
+                i++;
+            }
+
+            flushMarkdown();
+            return container;
+        }
+
         function renderFormattedContent(content, isStreaming = false) {
-            let contentText;
-            let isJSONContent = false;
-            
-            if (content === null || content === undefined) {
-                contentText = '';
-            } else if (typeof content === 'object') {
-                try {
-                    contentText = JSON.stringify(content, null, 2);
-                    isJSONContent = true;
-                } catch (e) {
-                    contentText = String(content);
-                }
-            } else if (typeof content === 'string') {
-                contentText = content;
-            } else {
-                contentText = String(content);
+            const contentText = normalizeContentToText(content);
+            const trimmed = contentText.trim();
+
+            if (!trimmed) {
+                const empty = document.createElement('div');
+                empty.className = 'message-content';
+                return empty;
             }
-            
-            // 检查字符串内容是否看起来像JSON
-            if (!isJSONContent && !isStreaming) {
-                const trimmed = contentText.trim();
-                const looksLikeJSON = (trimmed.startsWith('{') && trimmed.endsWith('}')) || 
-                                       (trimmed.startsWith('[') && trimmed.endsWith(']'));
-                
-                if (looksLikeJSON) {
-                    try {
-                        JSON.parse(trimmed);
-                        isJSONContent = true;
-                    } catch (e) {
-                        // 不是有效的JSON
-                    }
-                }
+
+            // 流式阶段先按纯文本显示，完成后再重新判断 Markdown / JSON
+            if (isStreaming) {
+                const plain = document.createElement('div');
+                plain.className = 'message-content';
+                plain.style.whiteSpace = 'pre-wrap';
+                plain.textContent = contentText;
+                return plain;
             }
-            
-            // JSON内容原样显示为纯文本
-            if (isJSONContent) {
-                const textContainer = document.createElement('div');
-                textContainer.className = 'message-content';
-                textContainer.style.whiteSpace = 'pre-wrap';
-                textContainer.style.fontFamily = 'monospace';
-                textContainer.textContent = contentText;
-                return textContainer;
+
+            if (isValidJsonText(contentText)) {
+                const pre = document.createElement('pre');
+                pre.className = 'json-formatted';
+                pre.textContent = contentText;
+                return pre;
             }
-            
-            // 非JSON内容尝试Markdown渲染（支持流式传输）
-            if (typeof marked !== 'undefined') {
-                const mdContainer = document.createElement('div');
-                mdContainer.className = 'message-content';
-                
-                try {
-                    const escapedText = contentText
-                        .replace(/&/g, '&amp;')
-                        .replace(/</g, '&lt;')
-                        .replace(/>/g, '&gt;')
-                        .replace(/"/g, '&quot;')
-                        .replace(/'/g, '&#039;');
-                    
-                    const parsedContent = marked.parse(escapedText);
-                    if (typeof parsedContent === 'string') {
-                        mdContainer.innerHTML = parsedContent;
-                    } else {
-                        mdContainer.textContent = contentText;
-                    }
-                } catch (err) {
-                    mdContainer.textContent = contentText;
-                }
-                
-                return mdContainer;
-            }
-            
-            const textContainer = document.createElement('div');
-            textContainer.className = 'message-content';
-            textContainer.textContent = contentText;
-            return textContainer;
+
+            return buildMixedContentContainer(contentText);
         }
-        
+
         function createCopyButton(text) {
             const copyBtn = document.createElement('button');
             copyBtn.className = 'copy-btn';
@@ -914,22 +962,9 @@
                 </svg>
                 复制
             `;
-            
-            let textToCopy;
-            if (text === null || text === undefined) {
-                textToCopy = '';
-            } else if (typeof text === 'string') {
-                textToCopy = text;
-            } else if (typeof text === 'object') {
-                try {
-                    textToCopy = JSON.stringify(text, null, 2);
-                } catch (e) {
-                    textToCopy = String(text);
-                }
-            } else {
-                textToCopy = String(text);
-            }
-            
+
+            const textToCopy = normalizeContentToText(text);
+
             copyBtn.addEventListener('click', async (e) => {
                 e.stopPropagation();
                 try {
@@ -941,7 +976,7 @@
                         已复制
                     `;
                     copyBtn.classList.add('copied');
-                    
+
                     setTimeout(() => {
                         copyBtn.innerHTML = `
                             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -956,52 +991,55 @@
                     console.error('复制失败:', err);
                 }
             });
-            
+
             return copyBtn;
         }
-        
+
         function createRenderToggleButton(messageElement, contentText, originalContentContainer) {
             const toggleBtn = document.createElement('button');
             toggleBtn.className = 'render-toggle-btn';
             toggleBtn.title = '切换渲染模式';
-            
+
             let isMarkdown = true;
             let currentContainer = originalContentContainer;
-            
+
             const updateToggleBtn = () => {
                 toggleBtn.innerHTML = isMarkdown ? 'MD' : 'TXT';
                 toggleBtn.title = isMarkdown ? '当前: Markdown渲染，点击切换纯文本' : '当前: 纯文本，点击切换Markdown渲染';
             };
-            
+
             toggleBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
                 isMarkdown = !isMarkdown;
-                
-                const wrapper = messageElement.querySelector('.message-wrapper');
-                
+
                 if (isMarkdown) {
                     const newElement = renderFormattedContent(contentText, false);
                     currentContainer.replaceWith(newElement);
                     currentContainer = newElement;
                 } else {
-                    const plainContainer = document.createElement('div');
-                    plainContainer.className = 'message-content';
-                    plainContainer.style.whiteSpace = 'pre-wrap';
-                    plainContainer.style.fontFamily = 'monospace';
+                    const plainContainer = document.createElement('pre');
+                    plainContainer.className = 'json-formatted';
                     plainContainer.textContent = contentText;
                     currentContainer.replaceWith(plainContainer);
                     currentContainer = plainContainer;
                 }
                 updateToggleBtn();
             });
-            
+
             updateToggleBtn();
             return toggleBtn;
         }
+
+
+        
+
         
         function saveCurrentChat() {
             if (currentMessages.length > 0) {
-                const chatTitle = currentMessages[0].content.substring(0, 30) + (currentMessages[0].content.length > 30 ? '...' : '');
+                                                const messageText = normalizeContentToText(currentMessages[0].content);
+                const chatTitle = messageText.substring(0, 30) + (messageText.length > 30 ? '...' : '');
+
+
                 const chatRecord = {
                     id: currentChatId,
                     title: chatTitle,
@@ -1101,7 +1139,7 @@
             }
         }
         
-        function renderMessages() {
+                function renderMessages() {
             const chatMessages = document.getElementById('chatMessages');
             chatMessages.innerHTML = '';
             
@@ -1120,7 +1158,9 @@
                 const wrapper = document.createElement('div');
                 wrapper.className = 'message-content-wrapper';
                 
-                const hasContent = message.content && message.content.trim().length > 0;
+                const messageText = normalizeContentToText(message.content);
+                const hasContent = hasDisplayContent(message.content);
+                const isStreaming = message.role === 'ai' && !message.done;
                 let contentElement = null;
                 
                 if (message.role === 'ai') {
@@ -1150,8 +1190,7 @@
                         `;
                         wrapper.appendChild(loadingContent);
                     } else {
-                        const isStreaming = message.role === 'ai' && !message.done;
-                        contentElement = renderFormattedContent(message.content || '', isStreaming);
+                        contentElement = renderFormattedContent(messageText, isStreaming);
                         wrapper.appendChild(contentElement);
                     }
                 } else {
@@ -1163,15 +1202,16 @@
                     
                     contentElement = document.createElement('div');
                     contentElement.className = 'message-content';
-                    contentElement.textContent = message.content || '';
+                    contentElement.textContent = messageText;
+                    
                     wrapper.appendChild(contentElement);
                 }
                 
                 messageElement.appendChild(wrapper);
                 
-                if (message.content && message.content.trim().length > 0 && message.role === 'ai') {
-                    const copyBtn = createCopyButton(message.content);
-                    const toggleBtn = createRenderToggleButton(messageElement, message.content, contentElement);
+                if (hasContent && message.role === 'ai' && !isStreaming) {
+                    const copyBtn = createCopyButton(messageText);
+                    const toggleBtn = createRenderToggleButton(messageElement, messageText, contentElement);
                     
                     messageElement.appendChild(toggleBtn);
                     messageElement.appendChild(copyBtn);
@@ -1182,6 +1222,8 @@
             
             chatMessages.scrollTop = chatMessages.scrollHeight;
         }
+        
+
         
         function showLoadingTitle() {
             const chatTitle = document.getElementById('chatTitle');
@@ -1202,7 +1244,7 @@
             chatTitle.textContent = 'Anthropic API 聊天';
         }
         
-        async function sendMessage() {
+                async function sendMessage() {
             const input = document.getElementById('chatInput');
             const message = input.value.trim();
             
@@ -1213,8 +1255,6 @@
                 return;
             }
             
-            let isStreaming = true;
-            
             currentMessages.push({ role: 'user', content: message });
             input.value = '';
             renderMessages();
@@ -1224,7 +1264,7 @@
                 
                 const formattedMessages = currentMessages.map(msg => ({
                     role: msg.role === 'ai' ? 'assistant' : msg.role,
-                    content: msg.content
+                    content: normalizeContentToText(msg.content)
                 }));
                 
                 const response = await fetch('/api/chat', {
@@ -1246,7 +1286,7 @@
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder();
                 
-                currentMessages.push({ role: 'ai', content: '' });
+                currentMessages.push({ role: 'ai', content: '', done: false });
                 renderMessages();
                 
                 let buffer = '';
@@ -1264,22 +1304,33 @@
                     buffer = lines.pop();
                     
                     for (const line of lines) {
-                        if (line.startsWith('data: ')) {
-                            const data = line.substring(6);
-                            if (data) {
-                                try {
-                                    const parsed = JSON.parse(data);
-                                    
-                                    if (parsed.text) {
-                                        currentMessages[currentMessages.length - 1].content += parsed.text;
-                                        renderMessages();
-                                    } else if (parsed.done) {
-                                        isStreaming = false;
-                                    }
-                                } catch (e) {
-                                    console.error('Error parsing SSE data:', e);
+                        if (!line.startsWith('data: ')) continue;
+                        
+                        const data = line.substring(6);
+                        if (!data) continue;
+                        
+                        try {
+                            const parsed = JSON.parse(data);
+                            const lastMessage = currentMessages[currentMessages.length - 1];
+                            
+                                                        if (parsed.text !== undefined && parsed.text !== null) {
+                                const chunkText = normalizeContentToText(parsed.text);
+                                if (chunkText) {
+                                    lastMessage.content += chunkText;
+                                    lastMessage.content = sanitizeDisplayText(lastMessage.content);
+                                    renderMessages();
                                 }
                             }
+
+                            
+                                                        if (parsed.done) {
+                                lastMessage.content = sanitizeDisplayText(lastMessage.content);
+                                lastMessage.done = true;
+                                renderMessages();
+                            }
+
+                        } catch (e) {
+                            console.error('Error parsing SSE data:', e);
                         }
                     }
                 }
@@ -1290,7 +1341,6 @@
             } catch (error) {
                 console.error('发送消息失败:', error);
                 alert('发送消息失败: ' + error.message);
-                isStreaming = false;
                 restoreTitle();
                 
                 if (currentMessages.length > 0 && currentMessages[currentMessages.length - 1].role === 'ai') {
@@ -1302,6 +1352,8 @@
                 renderMessages();
             }
         }
+        
+
         
         function init() {
             loadConfig();

@@ -4,13 +4,13 @@
 
 一个用于支持anthropic api的大模型聊天测试应用，如果你购买了大模型相关的code plan服务，想测试该服务效果，但又不想编写麻烦的代码，就可以使用本项目，只许填写相关配置，就可以直接聊天
 
-
+![](https://github.com/normantest1/anthropic-chat-app/blob/main/souye.png)
 
 ### 如何使用
 
 ##### 直接下载
 
-如果你是windows 64位版本的话，直接下载打包好的文件就可以了，解压后，打开它，并访问http://localhost:3000端口
+如果你是windows 64位版本的话，直接下载[打包好的文件](https://github.com/normantest1/anthropic-chat-app/releases/latest)就可以了，解压后，打开它，并访问http://localhost:3000端口
 
 如果你是其它系统，则需要自己构建项目或直接打开测试模式
 

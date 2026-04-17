@@ -1,0 +1,5 @@
+node_modules/
+.idea/
+.env
+.pkg-cache/
+dist/

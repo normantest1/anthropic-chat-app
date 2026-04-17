@@ -1,0 +1,39 @@
+{
+  "name": "anthropic-chat-app",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "build": "pkg index.js --targets node16-win-x64 --output dist/AnthropicChat.exe --public",
+    "build:mac": "pkg index.js --targets node14-macos-x64 --output dist/AnthropicChat --public",
+    "build:linux": "pkg index.js --targets node14-linux-x64 --output dist/AnthropicChat --public",
+    "build:all": "pkg index.js --targets node14-win-x64,node14-macos-x64,node14-linux-x64 --output dist/AnthropicChat --public"
+  },
+  "pkg": {
+    "assets": [
+      "public/**/*"
+    ],
+    "targets": [
+      "node16-win-x64"
+    ],
+    "outputPath": "dist"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.89.0",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "form-data": "^4.0.5",
+    "node-fetch": "^2.7.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14",
+    "pkg": "^5.8.1"
+  }
+}
